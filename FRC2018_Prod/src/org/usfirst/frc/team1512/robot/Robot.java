@@ -1,3 +1,4 @@
+
 /*----------------------------------------------------------------------------*/
 /* Copyright (c) 2017-2018 FIRST. All Rights Reserved.                        */
 /* Open Source Software - may be modified and shared by FRC teams. The code   */
@@ -7,114 +8,379 @@
 
 package org.usfirst.frc.team1512.robot;
 
-import edu.wpi.first.wpilibj.TimedRobot;
-import edu.wpi.first.wpilibj.command.Command;
-import edu.wpi.first.wpilibj.command.Scheduler;
-import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
-import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
-import org.usfirst.frc.team1512.robot.commands.DriveWithJoysticks;
-import org.usfirst.frc.team1512.robot.subsystems.DriveTrain;
+import edu.wpi.first.wpilibj.GenericHID;
+import edu.wpi.first.wpilibj.GenericHID.Hand;
+
+//import com.ctre.phoenix.
+import edu.wpi.first.wpilibj.IterativeRobot;
+import edu.wpi.first.wpilibj.Joystick;
+//import edu.wpi.first.wpilibj.RobotDrive;  //RobotDrive deprecates to drive.DifferentialDrive
+import edu.wpi.first.wpilibj.drive.DifferentialDrive;
+import edu.wpi.first.wpilibj.XboxController;
+import edu.wpi.first.wpilibj.Spark;
+import edu.wpi.first.wpilibj.AnalogInput;
+import edu.wpi.first.wpilibj.AnalogPotentiometer;
+import edu.wpi.first.wpilibj.BuiltInAccelerometer;
+
+import edu.wpi.first.wpilibj.ADXRS450_Gyro;
+
+//Pneumatics
+import edu.wpi.first.wpilibj.Compressor;
+import edu.wpi.first.wpilibj.Solenoid;
+import edu.wpi.first.wpilibj.DoubleSolenoid;
+
+
+import com.ctre.phoenix.motorcontrol.ControlMode;
+import com.ctre.phoenix.motorcontrol.can.TalonSRX;
+import com.ctre.phoenix.motorcontrol.can.WPI_TalonSRX;
+
+import edu.wpi.first.wpilibj.interfaces.Potentiometer;
+import edu.wpi.first.wpilibj.smartdashboard.*;
 
 /**
- * The VM is configured to automatically run this class, and to call the
- * functions corresponding to each mode, as described in the TimedRobot
- * documentation. If you change the name of this class or the package after
- * creating this project, you must also update the build.properties file in the
- * project.
+ * 2/3/2018: This is the version of the generic TankDrive program, adapted to our robot for testing purposes
+ * 
+ * 	In Ryan Mitchell's view, because we will be trying to run multiple processes at the same time during
+ * 	the competition, we will eventuallly move our code to the "FRC2018_Prod" project, which is a
+ * 	COMMAND-BASED Robotics program.  
+ * 
+ * 	The following Tank Drive project uses an intereative robot class.  We have set up 3 talons, an xbox,
+ * 	and 1 potentiometer.
+ * 
+ * 	I am attempting to add some commands to display information to the smart dashboard, especially to 
+ * 	display the potentiometer, the gyroscope, and the accelerometer
  */
-public class Robot extends TimedRobot {
-	public static final DriveTrain driveTrain = new DriveTrain(0.2,0.0,0.0);
-	public static OI m_oi;
+public class Robot extends IterativeRobot { 
+	//driver station devices:
+	public  XboxController xbox;	//driver station xbox controller
+	private Joystick m_leftStick;	//driver station joysticks
+	private Joystick m_rightStick;
+	
+	
+	//motor controllers:
+	private WPI_TalonSRX FrontLeftMotor;
+	private WPI_TalonSRX FrontRightMotor;
+	private WPI_TalonSRX Shoulder;
+	private WPI_TalonSRX elbow;
+	private WPI_TalonSRX ArmMotor1;
+	private Spark MastLeft;
+	private Spark MastRight;
+	
+	//Pneummatic controllers
+	public Compressor compressor;
+	//private DoubleSolenoid grabber;
+	public Solenoid grabber;	
+	//sensors:
+	private Potentiometer pot1;
+	private BuiltInAccelerometer Accel1; //this is the builtin 3axis accelerometer on the ADXRS450 port, connected to SPI port on roboRio
+	private ADXRS450_Gyro Gyro1;	//this is the builtin gyro on the ADXRS450 port, connected to SPI port on roboRio
+	
+	//variables
+	
+		//grabber - pneumatic piece-grabbing system
+			public boolean grabberclosed;
+			public boolean compressoron;
+		//Potentiometers:
+			private double p1lowAngle;
+			private double p1middleAngle;
+			private double p1highAngle;
+			private AnalogInput ai3;
+			private double degreesPot1;
+	
+		//Accelermoters:
+			private double Accel1x;
+			private double Accel1y;
+			private double Accel1z;
+			
+		//RobotDrive
+		DifferentialDrive myDrive;
+	
 
-	Command m_autonomousCommand;
-	SendableChooser<Command> m_chooser = new SendableChooser<>();
-
-	/**
-	 * This function is run when the robot is first started up and should be
-	 * used for any initialization code.
-	 */
 	@Override
 	public void robotInit() {
-		m_oi = new OI();
-		m_chooser.addDefault("Default Auto", new DriveWithJoysticks());
-		// chooser.addObject("My Auto", new MyAutoCommand());
-		SmartDashboard.putData("Auto mode", m_chooser);
+		//driver station:
+		xbox = new XboxController(0);			//value in parentheses is USB number
+		m_leftStick = new Joystick(1);
+		m_rightStick = new Joystick(2);
+		
+		
+		
+		//robot motor controllers:
+		FrontLeftMotor = new WPI_TalonSRX(2);	//value in parentheses is CANBUS device ID
+		FrontRightMotor = new WPI_TalonSRX(4);
+		//FrontLeftMotor.set(ControlMode.PercentOutput, m_leftStick.getY());
+		ArmMotor1 = new WPI_TalonSRX(3);
+		MastLeft = new Spark(0);
+		MastRight = new Spark(1);
+		
+		
+		Shoulder = new WPI_TalonSRX(5);
+		elbow = new WPI_TalonSRX(6);
+		
+		//Robot drive system
+		myDrive = new DifferentialDrive(FrontLeftMotor, FrontRightMotor);
+		
+		//pneumatics
+		compressor = new Compressor(1); //PCM (pneumatics control module) is on CANBus at ID 1
+		compressor.setClosedLoopControl(true); //this turns the control loop on, which means whenever pressure drops below 100psi compressor turns on
+		//grabber = new DoubleSolenoid(1, 1,2);	//Double Solenoid port numbering on PCM begins at 0, first number is CANBus ID, second number is port number on PCM
+		grabber = new Solenoid(1, 1);	//Solenoid port numbering on PCM begins at 0, first number is CANBus ID, second number is port number on PCM
+		compressoron=true; 				//records that compressor closed loop control is on
+
+		//sensors:
+		//potentiometer 1, connected to analog-input 3
+		ai3 = new AnalogInput(3);
+		pot1 = new AnalogPotentiometer(ai3, 360, 30);
+		
+		//input accelerometer
+		Accel1 = new BuiltInAccelerometer();
+		
+		//builtin gyroscope (ADXRS450)
+		Gyro1 = new ADXRS450_Gyro();
+		
+		//Gyro1.initGyro();
+		Gyro1.calibrate();
+		
+
+
+		//variables:
+			//potentiometer 1
+			p1lowAngle = 150;
+			p1middleAngle = 200;
+			p1highAngle = 250;
+			degreesPot1 = 0;
+			
+			//accelerometer
+			Accel1x=Accel1y=Accel1z=0;
+			
+			//grabber
+			grabberclosed=true;
+
 	}
 
-	/**
-	 * This function is called once each time the robot enters Disabled mode.
-	 * You can use it to reset any subsystem information you want to clear when
-	 * the robot is disabled.
-	 */
-	@Override
-	public void disabledInit() {
-
-	}
-
-	@Override
-	public void disabledPeriodic() {
-		Scheduler.getInstance().run();
-	}
-
-	/**
-	 * This autonomous (along with the chooser code above) shows how to select
-	 * between different autonomous modes using the dashboard. The sendable
-	 * chooser code works with the Java SmartDashboard. If you prefer the
-	 * LabVIEW Dashboard, remove all of the chooser code and uncomment the
-	 * getString code to get the auto name from the text box below the Gyro
-	 *
-	 * <p>You can add additional auto modes by adding additional commands to the
-	 * chooser code above (like the commented example) or additional comparisons
-	 * to the switch structure below with additional strings & commands.
-	 */
-	@Override
-	public void autonomousInit() {
-		m_autonomousCommand = m_chooser.getSelected();
-
-		/*
-		 * String autoSelected = SmartDashboard.getString("Auto Selector",
-		 * "Default"); switch(autoSelected) { case "My Auto": autonomousCommand
-		 * = new MyAutoCommand(); break; case "Default Auto": default:
-		 * autonomousCommand = new ExampleCommand(); break; }
-		 */
-
-		// schedule the autonomous command (example)
-		if (m_autonomousCommand != null) {
-			m_autonomousCommand.start();
-		}
-	}
-
-	/**
-	 * This function is called periodically during autonomous.
-	 */
-	@Override
-	public void autonomousPeriodic() {
-		Scheduler.getInstance().run();
-	}
-
-	@Override
-	public void teleopInit() {
-		// This makes sure that the autonomous stops running when
-		// teleop starts running. If you want the autonomous to
-		// continue until interrupted by another command, remove
-		// this line or comment it out.
-		if (m_autonomousCommand != null) {
-			m_autonomousCommand.cancel();
-		}
-	}
-
-	/**
-	 * This function is called periodically during operator control.
-	 */
 	@Override
 	public void teleopPeriodic() {
-		Scheduler.getInstance().run();
-	}
+		
+		/*
+		 * Gyroscope is working.  Therefore it is possible to write code for driving straight:
+		 * 
+		 * Find this code in screensteps by searching for "Gyros - Measuring rotation and controlling robot driving direction"
+		 * 
+		 * The variable kP is a proportional scaling constant to scale it for the speed of the robot drive.  This factor is
+		 * 	called the proportional constant or loop gain. Increasing kP will cause the robot to correct more quickly.
+		 *   (but too high and it will oscillate).  Decreasing the constant will cause it to correct more slowly.
+		 *   This is known as proportional control - refer to PID control for more details.
+		 *   
+		 *   note that this example assumes there is a myrobot class set up to drive robot.
+		 *   
+		 *   gyro1.reset();	//set zero degree direction
+		 *   while (condition for length of time to drive straight)
+		 *   {
+		 *   	double angle = gyro.getAngle();	//get current heading
+		 *   	myrobot.drive(-1.0, -angle * kP;	//move towards heading of 0 degrees
+		 *   	Timer.delay(0.004);
+		 *   }
+		 *   myrobot.drive(0.0, 0.0); //stop robot
+		 * 
+		 */
 
-	/**
-	 * This function is called periodically during test mode.
-	 */
-	@Override
-	public void testPeriodic() {
+		//TANK DRIVE SECTION - Uses left and right joystick
+		//code to provide a "dead zone" for each joystick
+		double leftvalue, rightvalue=0.0;
+		if(m_leftStick.getY()>0.1 || m_leftStick.getY()<-0.1) 
+		{
+			leftvalue=m_leftStick.getY();
+		}
+		else 
+		{
+			leftvalue=0.0;
+		}
+		if(m_rightStick.getY()>0.1 || m_rightStick.getY()<-0.1) 
+		{
+			rightvalue=m_rightStick.getY();
+		}
+		else 
+		{
+			rightvalue=0.0;
+		}
+		
+		myDrive.tankDrive(leftvalue, rightvalue);
+		
+		//ARM
+		double shouldervalue =0.0;
+		if(xbox.getRawAxis(1)>0.1 ||xbox.getRawAxis(1)<-0.1)
+		{
+			shouldervalue=xbox.getRawAxis(1);
+		}
+		else
+		{
+			shouldervalue=0.0;
+		}
+		
+		Shoulder.set(shouldervalue);
+		
+		double elbowvalue =0.0;
+		if(xbox.getRawAxis(5)>0.1 ||xbox.getRawAxis(5)<-0.1)
+		{
+			elbowvalue=xbox.getRawAxis(5);
+		}
+		else
+		{
+			elbowvalue=0.0;
+		}
+		
+		elbow.set(elbowvalue);
+		 
+		
+		
+		
+		//MAST DRIVE SECTION - Uses xbox joystick
+		//code to provide a "dead zone" for each joystick
+		double mastvalue=0.0;
+		if(xbox.getRawAxis(0)>0.1 || xbox.getRawAxis(0)<-0.1) 
+		{
+			mastvalue=xbox.getRawAxis(0);
+		}
+		else 
+		{
+			mastvalue=0.0;
+		}
+		//use mastvalue to drive TWO motors, connected to MastLeft and MastRight Spark Controllers
+		MastLeft.set(mastvalue);
+		MastRight.set(mastvalue*-1.0);  // right mast motor mounted opposite
+		
+		//run robot arm GRABBER
+		if(xbox.getBumper(Hand.kRight) && grabberclosed==true) //if right bumper pressed and grabber is closed
+		{
+			
+			while (xbox.getBumper(Hand.kRight))
+			{
+				//do nothing - wait until bumper is released before proceeding - stops double setting
+			}
+			
+			grabber.set(false);	//open grabber
+//			grabber.set(DoubleSolenoid.Value.kForward);	//open grabber
+			grabberclosed=false;
+		}
+		else if(xbox.getBumper(Hand.kRight) && grabberclosed==false) //if right bumper pressed and grabber is open
+		{
+			while (xbox.getBumper(Hand.kRight))
+			{
+				//do nothing - wait until bumper is released before proceeding - stops double setting
+			}
+
+//			grabber.set(DoubleSolenoid.Value.kReverse);	//close grabber
+			grabber.set(true);	//close grabber
+			grabberclosed=true;			
+		}
+	/*	else
+		{
+			grabber.set(DoubleSolenoid.Value.kOff);	//open grabber
+		}
+		*/
+		
+		//while debugging, allow the compressor to be turned off and on
+		if(xbox.getBumper(Hand.kLeft) && compressoron==true) //if left bumper pressed and compressor on
+		{
+			
+			while (xbox.getBumper(Hand.kLeft))
+			{
+				//do nothing - wait until bumper is released before proceeding - stops double setting
+			}
+			
+			compressor.setClosedLoopControl(false);	//turn off compressor
+			compressoron=false;
+		}
+		else if(xbox.getBumper(Hand.kLeft) && compressoron==false) //if left bumper pressed and compressor off
+		{
+			while (xbox.getBumper(Hand.kLeft))
+			{
+				//do nothing - wait until bumper is released before proceeding - stops double setting
+			}
+			
+			compressor.setClosedLoopControl(true);	//turn on compressor
+			compressoron=true;
+		}
+		
+		
+
+		
+		
+		
+		
+		
+		//test potentiometer 1
+		degreesPot1 = pot1.get();
+		//40-390
+		
+		
+		//when printing values, I am CASTING them to the int type. 
+		//	This gets rid of the values to the right of the decimal point
+		
+		System.out.println("Potentiometer 1 reading:" + (int) degreesPot1);
+		SmartDashboard.putNumber("Potentiometer 1 reading:", (int) degreesPot1);	//attempt to send info to driver station
+		
+		//test accelerometer 1
+		Accel1x=Accel1.getX();
+		Accel1y=Accel1.getY();
+		Accel1z=Accel1.getZ();
+		SmartDashboard.putNumber("Accelerometer x reading:", (int) Accel1x);	//attempt to send info to driver station
+		SmartDashboard.putNumber("Accelerometer y reading:", (int) Accel1y);	//attempt to send info to driver station
+		SmartDashboard.putNumber("Accelerometer z reading:", (int) Accel1z);	//attempt to send info to driver station
+		System.out.println("Accelerometer x reading:"+  (int) Accel1x);
+		System.out.println("Accelerometer y reading:"+  (int) Accel1y);
+		System.out.println("Accelerometer z reading:"+  (int) Accel1z);
+		
+		//Gyro1 display:
+		SmartDashboard.putNumber("Gyro1 angle:",    Gyro1.getAngle());	//attempt to send info to driver station
+		SmartDashboard.putNumber("Gyro1 rate:",   Gyro1.getRate());	//attempt to send info to driver station
+		System.out.println("Gyro1 angle:"+   String.format("%.2f", Gyro1.getAngle()));
+		System.out.println("Gyro1 rate:"+   String.format("%.2f", Gyro1.getRate()));
+	
+		//I'm trying to get gyro values to print with just 2 decimal points, but the putString doesn't show anything
+		SmartDashboard.putString("Gyro1 angle:",   String.format("%.2f", Gyro1.getAngle()));	//attempt to send info to driver station
+		SmartDashboard.putString("Gyro1 rate:",  String.format("%.2f", Gyro1.getRate()));	//attempt to send info to driver station
+		
+		// test setting xbox buttons to move arms based on potentiometer settings
+		//low scale
+		if(xbox.getAButtonPressed()) {
+			if(pot1.get()<p1lowAngle-5) {
+				ArmMotor1.set(0.2);
+			} else if (pot1.get()>p1lowAngle+5) {
+				ArmMotor1.set(-0.2);
+			} else {
+				ArmMotor1.set(0.0);
+				
+			}
+		}
+		
+		
+		//middle scale position
+		if(xbox.getBButtonPressed()) {
+			if(pot1.get()<p1middleAngle-5) {
+				ArmMotor1.set(0.2);
+			} else if (pot1.get()>p1middleAngle+5) {
+				ArmMotor1.set(-0.2);
+			} else {
+				ArmMotor1.set(0.0);
+				
+			}
+		}
+		//high scale position
+		if(xbox.getYButtonPressed()) {
+			if(pot1.get()<p1highAngle-5) {
+				ArmMotor1.set(0.2);
+			} else if (pot1.get()>p1highAngle+5) {
+				ArmMotor1.set(-0.2);
+			} else {
+				ArmMotor1.set(0.0);
+			}
+		}
+		
+		if(xbox.getXButtonPressed()) {
+			p1lowAngle = pot1.get();
+		}
+		
 	}
+		
 }
